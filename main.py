@@ -13,7 +13,7 @@ import resource.export
 
 def main():
     octodb = decrypt.octodb.decryptOctoDB(
-        "./octo/pdb/400/205000/octocacheevai")
+        "./octo/pdb/400/205100/octocacheevai")
 
     try:
         # 解密AssetBundle
