@@ -72,114 +72,99 @@ def exportObject(object: ObjectReader, outputPath: str):
         print(f"Error: {e}")
         return
 
-    if hasattr(fileData, "name") == False or fileData.name is None or fileData.name == "":
-        return
-
-    fileName = fileData.name
+        # 获取文件名，优先使用name，否则使用资源路径
+    if hasattr(fileData, "name") and fileData.name:
+        fileName = fileData.name
+    else:
+        # 使用object的容器路径，如果没有则使用路径ID
+        if object.container:
+            fileName = object.container.replace('/', '_').strip('_')
+        else:
+            fileName = f"asset_{object.path_id}"
 
     # 组成导出文件路径
     exportFilePath = os.path.join(outputPath, objectType, fileName)
     # 建立文件夹
     if not os.path.exists(os.path.dirname(exportFilePath)):
         os.makedirs(os.path.dirname(exportFilePath))
-
-    # 导出文件
-    match objectType:
-        case 'Sprite':
-            exportFilePath += ".png"
-            fileData.image.save(exportFilePath)
-        case 'Texture2D':
-            exportFilePath += ".png"
-            # 检查是否有图片数据
-            if not os.path.exists(exportFilePath) and fileData.m_Width:
-                imageData = fileData.image
-                # 调整部分图片大小
-                imageData = asset_bundle.image.resizeByFileName(fileName, imageData)
-                imageData.save(exportFilePath)
-        case 'TextAsset':
-            # 检查是否存在后缀
-            if not os.path.splitext(exportFilePath)[1]:
-                exportFilePath += ".txt"
-
-            # 写入文件
-            with open(exportFilePath, "wb") as f:
-                f.write(fileData.script)
-        case 'Shader':
-            exportFilePath += ".shader"
-            # 写入文件
-            with open(exportFilePath, "wb") as f:
-                f.write(fileData.export().encode("utf8"))
-        case 'MonoBehaviour':
-            # 如果存在nodes，则转换为json格式储存
-            if object.serialized_type.nodes:
-                exportFilePath += ".json"
-                # 写入文件
-                try:
-                    file = open(exportFilePath, "wb")
-                    file.write(json.dumps(
-                        object.read_typetree(),
-                        indent=4,
-                        ensure_ascii=False
-                    ).encode("utf8"))
-                # 处理`OSError`异常
-                except OSError as e:
-                    print(f"Error: {e}")
-                except:
-                    raise
+    
+    try:
+        match objectType:
+            case 'Sprite':
+                exportFilePath += ".png"
+                fileData.image.save(exportFilePath)
+            case 'Texture2D':
+                exportFilePath += ".png"
+                if fileData.m_Width and fileData.image:
+                    imageData = fileData.image
+                    imageData = asset_bundle.image.resizeByFileName(fileName, imageData)
+                    imageData.save(exportFilePath)
                 else:
-                    file.close()
-            else:
-                exportFilePath += ".bin"
-                # 写入文件
+                    print(f"  Texture2D '{fileName}' 无图像数据，跳过")
+                    return
+            case 'TextAsset':
+                if not os.path.splitext(exportFilePath)[1]:
+                    exportFilePath += ".txt"
                 with open(exportFilePath, "wb") as f:
-                    f.write(object.raw_data)
-        case 'Mesh':
-            # Mesh导出到容器命名的文件夹
-            if objectContainer is not None:
-                exportFilePath = os.path.join(
-                    outputPath, objectType, objectContainer, fileName)
-                # 建立文件夹
-                if not os.path.exists(os.path.dirname(exportFilePath)):
-                    os.makedirs(os.path.dirname(exportFilePath))
-
-            exportFilePath += ".obj"
-
-            fileBuf = fileData.export()
-            # 如果遇到bool类型则跳过
-            if isinstance(fileBuf, bool):
+                    f.write(fileData.script)
+            case 'Shader':
+                exportFilePath += ".shader"
+                with open(exportFilePath, "w", encoding="utf-8") as f:
+                    f.write(fileData.export())
+            case 'MonoBehaviour':
+                if object.serialized_type.nodes:
+                    exportFilePath += ".json"
+                    with open(exportFilePath, "w", encoding="utf-8") as f:
+                        json.dump(
+                            object.read_typetree(),
+                            f,
+                            indent=4,
+                            ensure_ascii=False
+                        )
+                else:
+                    exportFilePath += ".bin"
+                    with open(exportFilePath, "wb") as f:
+                        f.write(object.raw_data)
+            case 'Mesh':
+                if objectContainer is not None:
+                    exportFilePath = os.path.join(
+                        outputPath, objectType, objectContainer, fileName)
+                    if not os.path.exists(os.path.dirname(exportFilePath)):
+                        os.makedirs(os.path.dirname(exportFilePath))
+                exportFilePath += ".obj"
+                fileBuf = fileData.export()
+                if isinstance(fileBuf, bool):
+                    return
+                with open(exportFilePath, "wt", newline="") as f:
+                    f.write(fileBuf)
+            case 'Font':
+                if fileData.m_FontData:
+                    if fileData.m_FontData[0:4] == b"OTTO":
+                        exportFilePath += ".otf"
+                    else:
+                        exportFilePath += ".ttf"
+                    with open(exportFilePath, "wb") as f:
+                        f.write(fileData.m_FontData)
+            case 'AudioClip':
+                samples = fileData.samples
+                for name, clip_data in samples.items():
+                    if not os.path.splitext(name)[1]:
+                        name += ".wav"
+                    exportFilePath = os.path.join(
+                        outputPath, objectType, fileName, name)
+                    if not os.path.exists(os.path.dirname(exportFilePath)):
+                        os.makedirs(os.path.dirname(exportFilePath))
+                    with open(exportFilePath, "wb") as f:
+                        f.write(clip_data)
+            case 'VideoClip':
+                exportFilePath += ".mp4"
+                with open(exportFilePath, "wb") as f:
+                    f.write(fileData.m_VideoData)
+            case _:
+                print(f"Unknown type: {objectType}")
                 return
-            # 写入文件
-            with open(exportFilePath, "wt", newline="") as f:
-                f.write(fileBuf)
-        case 'Font':
-            if fileData.m_FontData:
-                if fileData.m_FontData[0:4] == b"OTTO":
-                    exportFilePath += ".otf"
-                else:
-                    exportFilePath += ".ttf"
-                # 写入文件
-                with open(exportFilePath, "wb") as f:
-                    f.write(fileData.m_FontData)
-        case 'AudioClip':
-            samples = fileData.samples
-            for name, clip_data in samples.items():
-                # 检查是否存在后缀
-                if not os.path.splitext(name)[1]:
-                    name += ".wav"
-
-                exportFilePath = os.path.join(
-                    outputPath, objectType, fileName, name)
-                # 建立文件夹
-                if not os.path.exists(os.path.dirname(exportFilePath)):
-                    os.makedirs(os.path.dirname(exportFilePath))
-                # 写入文件
-                with open(exportFilePath, "wb") as f:
-                    f.write(clip_data)
-        case 'VideoClip':
-            exportFilePath += ".mp4"
-            # 写入文件
-            with open(exportFilePath, "wb") as f:
-                f.write(fileData.m_VideoData)
-        case _:
-            print(f"Unknown type: {objectType}")
-            return
+                
+        
+    except Exception as e:
+        print(f"  导出错误 [{objectType}] '{fileName}': {e}")
+        return
